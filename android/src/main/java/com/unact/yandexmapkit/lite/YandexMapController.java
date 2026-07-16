@@ -192,6 +192,18 @@ public class YandexMapController implements
         deselectGeoObject();
         result.success(null);
         break;
+      case "pause":
+        if (!disposed) {
+          mapView.onStop();
+        }
+        result.success(null);
+        break;
+      case "resume":
+        if (!disposed) {
+          mapView.onStart();
+        }
+        result.success(null);
+        break;
       default:
         result.notImplemented();
         break;

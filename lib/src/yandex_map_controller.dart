@@ -80,6 +80,27 @@ class YandexMapController extends ChangeNotifier {
     await _channel.invokeMethod('deselectGeoObject');
   }
 
+  /// Pauses map rendering to save CPU and battery.
+  ///
+  /// Call this when the map is no longer visible but still mounted
+  /// (e.g. covered by another route/bottom sheet). Rendering stops until
+  /// [resume] is called.
+  ///
+  /// Android: calls native `MapView.onStop()`.
+  /// iOS: calls native `YMKMapKit.onStop()` (affects the whole MapKit engine,
+  /// so only use while no other map is meant to keep rendering).
+  Future<void> pause() async {
+    await _channel.invokeMethod('pause');
+  }
+
+  /// Resumes map rendering previously paused with [pause].
+  ///
+  /// Android: calls native `MapView.onStart()`.
+  /// iOS: calls native `YMKMapKit.onStart()`.
+  Future<void> resume() async {
+    await _channel.invokeMethod('resume');
+  }
+
   /// Applies JSON style transformations to the map.
   /// Set to empty string to clear previous styling.
   ///

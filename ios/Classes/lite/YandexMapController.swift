@@ -101,6 +101,12 @@ public class YandexMapController:
     case "deselectGeoObject":
       deselectGeoObject()
       result(nil)
+    case "pause":
+      YMKMapKit.sharedInstance().onStop()
+      result(nil)
+    case "resume":
+      YMKMapKit.sharedInstance().onStart()
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
