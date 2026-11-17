@@ -3,6 +3,9 @@ package com.unact.yandexmapkit.lite;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 
 import androidx.annotation.NonNull;
@@ -30,6 +33,8 @@ import com.yandex.mapkit.logo.VerticalAlignment;
 import com.yandex.mapkit.map.CameraPosition;
 import com.yandex.mapkit.map.GeoObjectSelectionMetadata;
 import com.yandex.mapkit.map.InputListener;
+import com.yandex.mapkit.map.MapLoadedListener;
+import com.yandex.mapkit.map.OffscreenMapWindow;
 import com.yandex.mapkit.map.MapType;
 import com.yandex.mapkit.map.PointOfView;
 import com.yandex.mapkit.map.CameraUpdateReason;
@@ -42,6 +47,7 @@ import com.yandex.mapkit.user_location.UserLocationLayer;
 import com.yandex.mapkit.user_location.UserLocationObjectListener;
 import com.yandex.mapkit.user_location.UserLocationView;
 
+import java.io.ByteArrayOutputStream;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -68,6 +74,9 @@ public class YandexMapController implements
   View.OnLayoutChangeListener
 {
   private final MapView mapView;
+  @Nullable private String mapStyle;
+  @Nullable private OffscreenMapWindow snapshotWindow;
+  @Nullable private MapLoadedListener snapshotListener;
   public final Context context;
   public final MethodChannel methodChannel;
   private final InitLite.LifecycleProvider lifecycleProvider;
@@ -192,6 +201,9 @@ public class YandexMapController implements
         deselectGeoObject();
         result.success(null);
         break;
+      case "captureScreenshot":
+        captureScreenshot(result);
+        break;
       case "pause":
         if (!disposed) {
           mapView.onStop();
@@ -208,6 +220,48 @@ public class YandexMapController implements
         result.notImplemented();
         break;
     }
+  }
+
+  /// PNG of the current camera view. The on-screen MapView has no screenshot API, so an
+  /// offscreen map window of the same size, camera, night mode, type and style is rendered and
+  /// captured once its tiles are loaded (or after 4 s, whatever is drawn by then).
+  private void captureScreenshot(final MethodChannel.Result result) {
+    if (disposed || snapshotWindow != null || mapView.getWidth() == 0 || mapView.getHeight() == 0) {
+      result.success(null);
+      return;
+    }
+    final com.yandex.mapkit.map.Map source = mapView.getMapWindow().getMap();
+    final OffscreenMapWindow window = MapKitFactory.getInstance().createOffscreenMapWindow(
+      mapView.getWidth(),
+      mapView.getHeight(),
+      context.getResources().getDisplayMetrics().density
+    );
+    final com.yandex.mapkit.map.Map map = window.getMapWindow().getMap();
+    map.setNightModeEnabled(source.isNightModeEnabled());
+    map.setMapType(source.getMapType());
+    if (mapStyle != null) map.setMapStyle(mapStyle);
+    map.move(source.getCameraPosition());
+
+    final Handler handler = new Handler(Looper.getMainLooper());
+    final boolean[] done = {false};
+    final Runnable finish = () -> {
+      if (done[0]) return;
+      done[0] = true;
+      Bitmap bitmap = window.captureScreenshot();
+      result.success(bitmap == null ? null : toPng(bitmap));
+      snapshotWindow = null;
+      snapshotListener = null;
+    };
+    snapshotListener = statistics -> handler.post(finish);
+    map.setMapLoadedListener(snapshotListener);
+    snapshotWindow = window;
+    handler.postDelayed(finish, 4000);
+  }
+
+  private static byte[] toPng(Bitmap bitmap) {
+    ByteArrayOutputStream stream = new ByteArrayOutputStream();
+    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream);
+    return stream.toByteArray();
   }
 
   @SuppressWarnings({"unchecked"})
@@ -255,7 +309,8 @@ public class YandexMapController implements
   public boolean setMapStyle(MethodCall call) {
     Map<String, Object> params = ((Map<String, Object>) call.arguments);
 
-    return mapView.getMapWindow().getMap().setMapStyle((String) params.get("style"));
+    mapStyle = (String) params.get("style");
+    return mapView.getMapWindow().getMap().setMapStyle(mapStyle);
   }
 
   @SuppressWarnings({"unchecked", "ConstantConditions"})

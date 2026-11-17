@@ -28,6 +28,9 @@ public class YandexMapController:
     )
   }()
   private let mapView: FLYMKMapView
+  private var mapStyle: String?
+  private var snapshotWindow: YMKOffscreenMapWindow?
+  private var snapshotListener: SnapshotLoadedListener?
 
   public required init(id: Int64, frame: CGRect, registrar: FlutterPluginRegistrar, params: [String: Any]) {
     self.pluginRegistrar = registrar
@@ -101,6 +104,8 @@ public class YandexMapController:
     case "deselectGeoObject":
       deselectGeoObject()
       result(nil)
+    case "captureScreenshot":
+      captureScreenshot(result)
     case "pause":
       YMKMapKit.sharedInstance().onStop()
       result(nil)
@@ -149,8 +154,48 @@ public class YandexMapController:
 
   public func setMapStyle(_ call: FlutterMethodCall) -> Bool {
     let params = call.arguments as! [String: Any]
+    let style = params["style"] as! String
+    mapStyle = style
 
-    return mapView.mapWindow.map.setMapStyleWithStyle(params["style"] as! String)
+    return mapView.mapWindow.map.setMapStyleWithStyle(style)
+  }
+
+  /// PNG of the current camera view. The on-screen map view has no screenshot API, so an
+  /// offscreen map window of the same size, camera, night mode, type and style is rendered and
+  /// captured once its tiles are loaded (or after 4 s, whatever is drawn by then).
+  public func captureScreenshot(_ result: @escaping FlutterResult) {
+    let size = mapView.bounds.size
+    let scale = UIScreen.main.scale
+    if (size.width <= 0 || size.height <= 0 || snapshotWindow != nil) {
+      result(nil)
+      return
+    }
+
+    let source = mapView.mapWindow.map
+    let window = YMKMapKit.sharedInstance().createOffscreenMapWindow(
+      withWidth: Int(size.width * scale),
+      height: Int(size.height * scale),
+      customScaleFactor: Float(scale)
+    )
+    let map = window.mapWindow.map
+    map.isNightModeEnabled = source.isNightModeEnabled
+    map.mapType = source.mapType
+    if let style = mapStyle { map.setMapStyleWithStyle(style) }
+    map.move(with: source.cameraPosition)
+
+    var done = false
+    let finish: () -> Void = { [weak self] in
+      if (done) { return }
+      done = true
+      result(window.captureScreenshot().pngData().map { FlutterStandardTypedData(bytes: $0) })
+      self?.snapshotWindow = nil
+      self?.snapshotListener = nil
+    }
+    let listener = SnapshotLoadedListener(onLoaded: finish)
+    map.setMapLoadedListenerWith(listener)
+    snapshotWindow = window
+    snapshotListener = listener
+    DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: finish)
   }
 
   public func selectGeoObject(_ call: FlutterMethodCall) {
@@ -700,5 +745,18 @@ public class YandexMapController:
         }
       }
     }
+  }
+}
+
+/// Map-loaded callback for [YandexMapController.captureScreenshot]; MapKit keeps only a weak reference.
+class SnapshotLoadedListener: NSObject, YMKMapLoadedListener {
+  private let onLoaded: () -> Void
+
+  init(onLoaded: @escaping () -> Void) {
+    self.onLoaded = onLoaded
+  }
+
+  func onMapLoaded(with statistics: YMKMapLoadStatistics) {
+    DispatchQueue.main.async { self.onLoaded() }
   }
 }

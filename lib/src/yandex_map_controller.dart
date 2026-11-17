@@ -80,6 +80,16 @@ class YandexMapController extends ChangeNotifier {
     await _channel.invokeMethod('deselectGeoObject');
   }
 
+  /// PNG snapshot of the current camera view (map view size, device pixels),
+  /// or `null` if it could not be taken.
+  ///
+  /// Rendered natively in an offscreen map window (`createOffscreenMapWindow` +
+  /// `captureScreenshot`) with the same camera, night mode, map type and style;
+  /// completes when its tiles are loaded, at most ~4 s.
+  Future<Uint8List?> captureScreenshot() async {
+    return await _channel.invokeMethod<Uint8List>('captureScreenshot');
+  }
+
   /// Pauses map rendering to save CPU and battery.
   ///
   /// Call this when the map is no longer visible but still mounted
